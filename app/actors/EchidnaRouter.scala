@@ -3,12 +3,12 @@ package actors
 import java.util.UUID
 import actors.User.{Count, InvalidMessage}
 import scala.util.Random
-import actors.EchidnaRouter.{UsersState, UsersData}
+import actors.EchidnaRouter.{RouterState, RouterData}
 import actors.Question.{Timeout, MatchedUser, Answer, Initialize}
 import akka.actor._
 import scala.collection.immutable
 
-class EchidnaRouter(val actorSystem: ActorSystem) extends Actor with FSM[UsersState, UsersData] with ActorLogging {
+class EchidnaRouter(val actorSystem: ActorSystem) extends Actor with FSM[RouterState, RouterData] with ActorLogging {
 
   import actors.EchidnaRouter._
   import scala.concurrent.duration._
@@ -16,11 +16,11 @@ class EchidnaRouter(val actorSystem: ActorSystem) extends Actor with FSM[UsersSt
 
   private lazy val random = new Random
 
-  startWith(Active, UsersData(Map.empty, Map.empty))
+  startWith(Active, RouterData(Map.empty, Map.empty))
 
   when(Active) {
     // new user connected, store in data
-    case Event(Connected(id, ref), data@UsersData(users, questions)) => {
+    case Event(Connected(id, ref), data@RouterData(users, questions)) => {
 
       val connectedUsers = users + (id -> ref)
 
@@ -31,7 +31,7 @@ class EchidnaRouter(val actorSystem: ActorSystem) extends Actor with FSM[UsersSt
     }
 
     // user disconnected
-    case Event(Disconnected(id), data@UsersData(users, questions)) => {
+    case Event(Disconnected(id), data@RouterData(users, questions)) => {
 
       val connectedUsers = users - id
 
@@ -42,7 +42,7 @@ class EchidnaRouter(val actorSystem: ActorSystem) extends Actor with FSM[UsersSt
     }
 
     // new question arrived
-    case Event(IncomingQuestion(askerId, asker, content), data@UsersData(users, questions)) => {
+    case Event(IncomingQuestion(askerId, asker, content), data@RouterData(users, questions)) => {
 
       // only try to find someone to answer the question if user is not alone
       if (users.size > 1) {
@@ -67,7 +67,7 @@ class EchidnaRouter(val actorSystem: ActorSystem) extends Actor with FSM[UsersSt
     }
 
     // new answer arrived
-    case Event(IncomingAnswer(questionId, askerId, value), data@UsersData(users, questions)) => {
+    case Event(IncomingAnswer(questionId, askerId, value), data@RouterData(users, questions)) => {
 
       questions.find((tuple) => tuple._1 == questionId) match {
         case Some((id, questionRef)) => questionRef ! Answer(value)
@@ -77,7 +77,7 @@ class EchidnaRouter(val actorSystem: ActorSystem) extends Actor with FSM[UsersSt
       stay()
     }
 
-    case Event(FindMatchExcept(userId, maybeSentTo), data@UsersData(users, questions)) => {
+    case Event(FindMatchExcept(userId, maybeSentTo), data@RouterData(users, questions)) => {
 
       val otherUsers = users.keys.toVector.filterNot(id => id == userId)
       val filteredUsers = maybeSentTo match {
@@ -94,7 +94,7 @@ class EchidnaRouter(val actorSystem: ActorSystem) extends Actor with FSM[UsersSt
       stay()
     }
 
-    case Event(Answered(questionId), data@UsersData(users, questions)) => {
+    case Event(Answered(questionId), data@RouterData(users, questions)) => {
       sender() ! PoisonPill
 
       stay using data.copy(questions = questions - questionId)
@@ -115,11 +115,11 @@ object EchidnaRouter {
   def props(actorSystem: ActorSystem) = Props(new EchidnaRouter(actorSystem))
 
   // States
-  sealed trait UsersState
-  case object Active extends UsersState
+  sealed trait RouterState
+  case object Active extends RouterState
 
   // Data
-  final case class UsersData(users: immutable.Map[UUID, ActorRef], questions: immutable.Map[UUID, ActorRef])
+  final case class RouterData(users: immutable.Map[UUID, ActorRef], questions: immutable.Map[UUID, ActorRef])
 
   // Incoming protocol from User incarnations to this actor
   final case class Connected(id: UUID, user: ActorRef)
